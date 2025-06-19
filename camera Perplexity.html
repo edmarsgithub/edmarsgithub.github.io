@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Gravador de Vídeo com Indicador e Temporizador</title>
+<title>Gravador de Vídeo com Indicador no Canto</title>
 <style>
   body {
     font-family: Arial, sans-serif;
@@ -20,24 +20,34 @@
     font-size: 16px;
     cursor: pointer;
   }
-  video {
-    background: #000;
+  .video-container {
+    position: relative;
     width: 100%;
     max-width: 640px;
-    display: block;
     margin: 10px 0;
   }
-  /* Indicador vermelho piscante */
-  #recordingIndicator {
-    display: inline-block;
-    width: 15px;
-    height: 15px;
-    margin-left: 10px;
+  video {
+    width: 100%;
+    background: #000;
+    display: block;
+  }
+  /* Indicador no canto superior direito */
+  #statusIndicator {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 16px;
+    height: 16px;
     border-radius: 50%;
-    background-color: red;
+    background-color: green; /* Verde quando só visualizando */
+    box-shadow: 0 0 5px rgba(0, 128, 0, 0.7);
+    transition: background-color 0.3s ease;
+  }
+  /* Animação de piscar para o indicador vermelho */
+  .recording {
+    background-color: red !important;
+    box-shadow: 0 0 8px rgba(255, 0, 0, 0.9) !important;
     animation: blink 1s infinite;
-    vertical-align: middle;
-    visibility: hidden;
   }
   @keyframes blink {
     0%, 50%, 100% { opacity: 1; }
@@ -63,13 +73,15 @@
   <select id="audioSource"></select>
 </div>
 
-<video id="video" autoplay muted></video>
+<div class="video-container">
+  <video id="video" autoplay muted></video>
+  <div id="statusIndicator" title="Status da gravação"></div>
+</div>
 
 <div class="controls">
   <button id="startBtn">Iniciar Gravação</button>
   <button id="stopBtn" disabled>Parar Gravação</button>
   <button id="saveBtn" disabled>Salvar Gravação</button>
-  <span id="recordingIndicator" title="Gravando"></span>
   <span id="timer">00:00</span>
 </div>
 
@@ -80,7 +92,7 @@
   const startBtn = document.getElementById('startBtn');
   const stopBtn = document.getElementById('stopBtn');
   const saveBtn = document.getElementById('saveBtn');
-  const recordingIndicator = document.getElementById('recordingIndicator');
+  const statusIndicator = document.getElementById('statusIndicator');
   const timerElement = document.getElementById('timer');
 
   let mediaRecorder;
@@ -90,14 +102,12 @@
   let timerInterval;
   let secondsElapsed = 0;
 
-  // Formata segundos para mm:ss
   function formatTime(seconds) {
     const m = Math.floor(seconds / 60).toString().padStart(2, '0');
     const s = (seconds % 60).toString().padStart(2, '0');
     return `${m}:${s}`;
   }
 
-  // Atualiza o temporizador a cada segundo
   function startTimer() {
     secondsElapsed = 0;
     timerElement.textContent = formatTime(secondsElapsed);
@@ -113,7 +123,6 @@
     timerElement.style.visibility = 'hidden';
   }
 
-  // Lista dispositivos de vídeo e áudio
   async function getDevices() {
     const devices = await navigator.mediaDevices.enumerateDevices();
     videoSelect.innerHTML = '';
@@ -132,107 +141,10 @@
     });
   }
 
-  // Inicia o stream com os dispositivos selecionados
   async function startStream() {
     if (stream) {
       stream.getTracks().forEach(track => track.stop());
     }
     const constraints = {
       video: { deviceId: videoSelect.value ? { exact: videoSelect.value } : undefined },
-      audio: { deviceId: audioSelect.value ? { exact: audioSelect.value } : undefined }
-    };
-    try {
-      stream = await navigator.mediaDevices.getUserMedia(constraints);
-      videoElement.srcObject = stream;
-      videoElement.controls = false;
-      videoElement.muted = true;
-      recordingIndicator.style.visibility = 'hidden';
-      timerElement.style.visibility = 'hidden';
-    } catch (error) {
-      console.error("Erro ao acessar dispositivos:", error);
-    }
-  }
-
-  // Iniciar gravação
-  startBtn.addEventListener('click', () => {
-    // Descartar gravação anterior e resetar vídeo para streaming ativo
-    recordedChunks = [];
-    if (videoElement.src) {
-      URL.revokeObjectURL(videoElement.src);
-    }
-    videoElement.srcObject = stream;
-    videoElement.controls = false;
-    videoElement.muted = true;
-    saveBtn.disabled = true;
-
-    mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
-
-    mediaRecorder.ondataavailable = event => {
-      if (event.data.size > 0) {
-        recordedChunks.push(event.data);
-      }
-    };
-
-    mediaRecorder.onstop = () => {
-      const blob = new Blob(recordedChunks, { type: 'video/webm' });
-      const videoURL = URL.createObjectURL(blob);
-      videoElement.srcObject = null; // Para mostrar o vídeo gravado
-      videoElement.src = videoURL;
-      videoElement.controls = true;
-      videoElement.muted = false;
-      saveBtn.disabled = false;
-
-      // Esconder indicador e timer ao parar
-      recordingIndicator.style.visibility = 'hidden';
-      stopTimer();
-    };
-
-    mediaRecorder.start();
-    startBtn.disabled = true;
-    stopBtn.disabled = false;
-
-    // Mostrar indicador vermelho piscante e iniciar timer
-    recordingIndicator.style.visibility = 'visible';
-    startTimer();
-
-    // Parar automaticamente após 2 minutos
-    recordingTimeout = setTimeout(() => {
-      if (mediaRecorder.state === 'recording') {
-        mediaRecorder.stop();
-        startBtn.disabled = false;
-        stopBtn.disabled = true;
-      }
-    }, 2 * 60 * 1000);
-  });
-
-  // Parar gravação
-  stopBtn.addEventListener('click', () => {
-    if (mediaRecorder && mediaRecorder.state === 'recording') {
-      mediaRecorder.stop();
-      clearTimeout(recordingTimeout);
-      startBtn.disabled = false;
-      stopBtn.disabled = true;
-    }
-  });
-
-  // Salvar gravação
-  saveBtn.addEventListener('click', () => {
-    const blob = new Blob(recordedChunks, { type: 'video/webm' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `gravacao-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.webm`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  });
-
-  // Inicialização
-  getDevices().then(startStream);
-  videoSelect.addEventListener('change', startStream);
-  audioSelect.addEventListener('change', startStream);
-</script>
-
-</body>
-</html>
+      audio: { device
