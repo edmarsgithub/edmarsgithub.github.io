@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Gravador de Vídeo com Indicador no Canto</title>
+<title>Gravador de Vídeo com Controle de Stream</title>
 <style>
   body {
     font-family: Arial, sans-serif;
@@ -20,29 +20,48 @@
     font-size: 16px;
     cursor: pointer;
   }
+  button:disabled,
+  select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
   .video-container {
     position: relative;
-    width: 60%;       /* Ajustado para 60% da largura disponível */
+    width: 60%;       /* vídeo com 60% da largura */
     margin: 10px 0;
   }
   video {
-    width: 100%;      /* Ocupa 100% do container (60% da tela) */
+    width: 100%;
     background: #000;
     display: block;
   }
-  /* Indicador no canto superior direito */
-  #statusIndicator {
+  /* Container do indicador e temporizador no canto superior direito */
+  #indicatorTimerContainer {
     position: absolute;
     top: 10px;
     right: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(0,0,0,0.3);
+    padding: 4px 8px;
+    border-radius: 20px;
+    user-select: none;
+    font-weight: bold;
+    font-size: 14px;
+    color: white;
+  }
+  /* Indicador círculo */
+  #statusIndicator {
     width: 16px;
     height: 16px;
     border-radius: 50%;
-    background-color: green; /* Verde quando só visualizando */
+    background-color: green; /* verde por padrão */
     box-shadow: 0 0 5px rgba(0, 128, 0, 0.7);
     transition: background-color 0.3s ease;
+    flex-shrink: 0;
   }
-  /* Animação de piscar para o indicador vermelho */
+  /* Animação de piscar para indicador vermelho */
   .recording {
     background-color: red !important;
     box-shadow: 0 0 8px rgba(255, 0, 0, 0.9) !important;
@@ -53,10 +72,7 @@
     25%, 75% { opacity: 0; }
   }
   #timer {
-    font-weight: bold;
-    font-size: 18px;
-    margin-left: 10px;
-    vertical-align: middle;
+    min-width: 40px;
     visibility: hidden;
   }
 </style>
@@ -64,6 +80,13 @@
 <body>
 
 <h1>Gravador de Vídeo</h1>
+
+<div class="controls">
+  <label>
+    <input type="checkbox" id="streamToggle" checked>
+    Ativar stream da câmera
+  </label>
+</div>
 
 <div class="controls">
   <label for="videoSource">Câmera:</label>
@@ -74,14 +97,16 @@
 
 <div class="video-container">
   <video id="video" autoplay muted></video>
-  <div id="statusIndicator" title="Status da gravação"></div>
+  <div id="indicatorTimerContainer" title="Status da gravação">
+    <div id="statusIndicator"></div>
+    <div id="timer">00:00</div>
+  </div>
 </div>
 
 <div class="controls">
   <button id="startBtn">Iniciar Gravação</button>
   <button id="stopBtn" disabled>Parar Gravação</button>
   <button id="saveBtn" disabled>Salvar Gravação</button>
-  <span id="timer">00:00</span>
 </div>
 
 <script>
@@ -93,6 +118,7 @@
   const saveBtn = document.getElementById('saveBtn');
   const statusIndicator = document.getElementById('statusIndicator');
   const timerElement = document.getElementById('timer');
+  const streamToggle = document.getElementById('streamToggle');
 
   let mediaRecorder;
   let recordedChunks = [];
@@ -141,6 +167,10 @@
   }
 
   async function startStream() {
+    if (!streamToggle.checked) {
+      stopStream();
+      return;
+    }
     if (stream) {
       stream.getTracks().forEach(track => track.stop());
     }
@@ -164,12 +194,67 @@
       saveBtn.disabled = true;
       startBtn.disabled = false;
       stopBtn.disabled = true;
+      videoSelect.disabled = false;
+      audioSelect.disabled = false;
+      startBtn.disabled = false;
     } catch (error) {
       console.error("Erro ao acessar dispositivos:", error);
     }
   }
 
+  function stopStream() {
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      stream = null;
+    }
+    videoElement.srcObject = null;
+    videoElement.src = '';
+    videoElement.controls = false;
+    videoElement.muted = true;
+
+    // Indicador cinza (stream desligado)
+    statusIndicator.classList.remove('recording');
+    statusIndicator.style.backgroundColor = 'gray';
+    statusIndicator.title = 'Stream desligado';
+
+    stopTimer();
+    timerElement.style.visibility = 'hidden';
+
+    // Desabilitar controles e seletores
+    videoSelect.disabled = true;
+    audioSelect.disabled = true;
+    startBtn.disabled = true;
+    stopBtn.disabled = true;
+    saveBtn.disabled = true;
+  }
+
+  streamToggle.addEventListener('change', () => {
+    if (streamToggle.checked) {
+      getDevices().then(startStream);
+    } else {
+      // Se estiver gravando, parar gravação antes de desligar stream
+      if (mediaRecorder && mediaRecorder.state === 'recording') {
+        mediaRecorder.stop();
+        clearTimeout(recordingTimeout);
+      }
+      stopStream();
+    }
+  });
+
+  videoSelect.addEventListener('change', () => {
+    if (streamToggle.checked) {
+      startStream();
+    }
+  });
+
+  audioSelect.addEventListener('change', () => {
+    if (streamToggle.checked) {
+      startStream();
+    }
+  });
+
   startBtn.addEventListener('click', () => {
+    if (!stream) return;
     recordedChunks = [];
     if (videoElement.src) {
       URL.revokeObjectURL(videoElement.src);
@@ -244,9 +329,14 @@
     URL.revokeObjectURL(url);
   });
 
-  getDevices().then(startStream);
-  videoSelect.addEventListener('change', startStream);
-  audioSelect.addEventListener('change', startStream);
+  // Inicialização
+  getDevices().then(() => {
+    if (streamToggle.checked) {
+      startStream();
+    } else {
+      stopStream();
+    }
+  });
 </script>
 
 </body>
