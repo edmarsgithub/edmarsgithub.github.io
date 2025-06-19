@@ -22,12 +22,11 @@
   }
   .video-container {
     position: relative;
-    width: 100%;
-    max-width: 640px;
+    width: 60%;       /* Ajustado para 60% da largura disponível */
     margin: 10px 0;
   }
   video {
-    width: 100%;
+    width: 100%;      /* Ocupa 100% do container (60% da tela) */
     background: #000;
     display: block;
   }
@@ -147,4 +146,108 @@
     }
     const constraints = {
       video: { deviceId: videoSelect.value ? { exact: videoSelect.value } : undefined },
-      audio: { device
+      audio: { deviceId: audioSelect.value ? { exact: audioSelect.value } : undefined }
+    };
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+      videoElement.srcObject = stream;
+      videoElement.controls = false;
+      videoElement.muted = true;
+
+      // Indicador verde (visualizando)
+      statusIndicator.classList.remove('recording');
+      statusIndicator.style.backgroundColor = 'green';
+      statusIndicator.title = 'Visualizando streaming';
+      stopTimer();
+      timerElement.style.visibility = 'hidden';
+
+      saveBtn.disabled = true;
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+    } catch (error) {
+      console.error("Erro ao acessar dispositivos:", error);
+    }
+  }
+
+  startBtn.addEventListener('click', () => {
+    recordedChunks = [];
+    if (videoElement.src) {
+      URL.revokeObjectURL(videoElement.src);
+    }
+    videoElement.srcObject = stream;
+    videoElement.controls = false;
+    videoElement.muted = true;
+    saveBtn.disabled = true;
+
+    mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+
+    mediaRecorder.ondataavailable = event => {
+      if (event.data.size > 0) {
+        recordedChunks.push(event.data);
+      }
+    };
+
+    mediaRecorder.onstop = () => {
+      const blob = new Blob(recordedChunks, { type: 'video/webm' });
+      const videoURL = URL.createObjectURL(blob);
+      videoElement.srcObject = null;
+      videoElement.src = videoURL;
+      videoElement.controls = true;
+      videoElement.muted = false;
+      saveBtn.disabled = false;
+
+      // Indicador verde após parar gravação (visualizando)
+      statusIndicator.classList.remove('recording');
+      statusIndicator.style.backgroundColor = 'green';
+      statusIndicator.title = 'Visualizando streaming';
+
+      stopTimer();
+    };
+
+    mediaRecorder.start();
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+
+    // Indicador vermelho piscante (gravando)
+    statusIndicator.classList.add('recording');
+    statusIndicator.title = 'Gravando';
+
+    startTimer();
+
+    recordingTimeout = setTimeout(() => {
+      if (mediaRecorder.state === 'recording') {
+        mediaRecorder.stop();
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+      }
+    }, 2 * 60 * 1000);
+  });
+
+  stopBtn.addEventListener('click', () => {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      mediaRecorder.stop();
+      clearTimeout(recordingTimeout);
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+    }
+  });
+
+  saveBtn.addEventListener('click', () => {
+    const blob = new Blob(recordedChunks, { type: 'video/webm' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `gravacao-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.webm`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
+
+  getDevices().then(startStream);
+  videoSelect.addEventListener('change', startStream);
+  audioSelect.addEventListener('change', startStream);
+</script>
+
+</body>
+</html>
