@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Gravador de Vídeo</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .controls { margin: 15px 0; }
+        button { padding: 10px 15px; margin: 5px; font-size: 16px; cursor: pointer; }
+        video { background: #000; width: 100%; max-width: 640px; display: block; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h1>Gravador de Vídeo</h1>
+    <div class="controls">
+        <label for="videoSource">Câmera:</label>
+        <select id="videoSource"></select>
+        <label for="audioSource">Microfone:</label>
+        <select id="audioSource"></select>
+    </div>
+    <video id="video" autoplay muted></video>
+    <div class="controls">
+        <button id="startBtn">Iniciar Gravação</button>
+        <button id="stopBtn" disabled>Parar Gravação</button>
+        <button id="saveBtn" disabled>Salvar Gravação</button>
+    </div>
+    <script>
+        const videoElement = document.getElementById('video');
+        const videoSelect = document.getElementById('videoSource');
+        const audioSelect = document.getElementById('audioSource');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const saveBtn = document.getElementById('saveBtn');
+
+        let mediaRecorder;
+        let recordedChunks = [];
+        let stream;
+        let recordingTimeout;
+
+        // Listar dispositivos de mídia
+        async function getDevices() {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            videoSelect.innerHTML = '';
+            audioSelect.innerHTML = '';
+            devices.forEach(device => {
+                const option = document.createElement('option');
+                option.value = device.deviceId;
+                option.text = device.label || `Dispositivo ${device.kind.slice(-1)}`;
+                if (device.kind === 'videoinput') {
+                    videoSelect.appendChild(option);
+                } else if (device.kind === 'audioinput') {
+                    audioSelect.appendChild(option);
+                }
+            });
+        }
+
+        // Iniciar stream de mídia
+        async function startStream() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+            const constraints = {
+                video: { deviceId: videoSelect.value ? { exact: videoSelect.value } : undefined },
+                audio: { deviceId: audioSelect.value ? { exact: audioSelect.value } : undefined }
+            };
+            try {
+                stream = await navigator.mediaDevices.getUserMedia(constraints);
+                videoElement.srcObject = stream;
+                videoElement.controls = false;
+                videoElement.muted = true;
+            } catch (error) {
+                console.error("Erro ao acessar dispositivos:", error);
+            }
+        }
+
+        // Iniciar gravação
+        startBtn.addEventListener('click', () => {
+            // 1. Se houver gravação anterior, descartar:
+            recordedChunks = [];
+            videoElement.removeAttribute('src');
+            videoElement.srcObject = stream;
+            videoElement.controls = false;
+            videoElement.muted = true;
+            saveBtn.disabled = true;
+
+            // 2. Iniciar gravação nova do zero:
+            mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+            mediaRecorder.ondataavailable = event => {
+                if (event.data.size > 0) {
+                    recordedChunks.push(event.data);
+                }
+            };
+            mediaRecorder.onstop = () => {
+                const blob = new Blob(recordedChunks, { type: 'video/webm' });
+                const videoURL = URL.createObjectURL(blob);
+                videoElement.srcObject = null;
+                videoElement.src = videoURL;
+                videoElement.controls = true;
+                videoElement.muted = false;
+                saveBtn.disabled = false;
+            };
+            mediaRecorder.start();
+            startBtn.disabled = true;
+            stopBtn.disabled = false;
+
+            // Parar automaticamente após 2 minutos
+            recordingTimeout = setTimeout(() => {
+                if (mediaRecorder.state === 'recording') {
+                    mediaRecorder.stop();
+                    startBtn.disabled = false;
+                    stopBtn.disabled = true;
+                }
+            }, 2 * 60 * 1000);
+        });
+
+        // Parar gravação
+        stopBtn.addEventListener('click', () => {
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                mediaRecorder.stop();
+                clearTimeout(recordingTimeout);
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+            }
+        });
+
+        // Salvar gravação
+        saveBtn.addEventListener('click', () => {
+            const blob = new Blob(recordedChunks, { type: 'video/webm' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `gravacao-${new Date().toISOString().slice(0, 19)}.webm`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
+
+        // Inicialização
+        getDevices().then(startStream);
+        videoSelect.addEventListener('change', startStream);
+        audioSelect.addEventListener('change', startStream);
+    </script>
+</body>
+</html>
